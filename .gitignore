@@ -9,3 +9,5 @@ build/
 .ipynb_checkpoints/
 examples/output/
 uv.lock
+.coverage
+htmlcov/

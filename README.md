@@ -30,12 +30,14 @@ Python ≥ 3.12. Der Kern braucht nur numpy, scipy und scikit-learn. Die Beispie
 
 ## Stand: was geprüft ist und was nicht
 
+Jede Änderung am Repo steht mit Begründung in [`CHANGELOG.md`](CHANGELOG.md).
+
 | Teil | Status |
 |---|---|
-| Kern, Regression, MC Dropout auf sklearn-MLPs, Credal, Conformal, OOD, globale Plots | 153 Tests grün (numpy/sklearn) |
+| Kern, Regression, MC Dropout auf sklearn-MLPs, Credal, Conformal, OOD, globale Plots | 181 Tests grün (numpy/sklearn), Abdeckung 92 %; Ground Truth mit 5 Seeds und 3 Ensemble-Typen |
 | `shapiq_bridge` | In der CI gegen shapiq 1.8.0 geprüft: Vergleich mit `shapiq.ExactComputer` (4 Merkmale), Additivität mit shapiq-Arithmetik, skalare Spiele. Nicht geprüft: Approximatoren, mehr als 12 Merkmale, shapiq-Plots. |
-| `torch_bridge` (`from_torch_dropout`, `from_torch_ensemble`) | In der CI (Job `dev,torch`) geprüft, allerdings nur mit kleinen, untrainierten Netzen. |
-| `probly_bridge` (`from_probly`) | In der CI (eigener Job mit probly) gegen probly `2729f4f` geprüft: Member-Vorhersagen, volle Koalition und Entropie-Zerlegung stimmen mit `probly.quantification.quantify` überein. Nur Klassifikation; ein Modell ohne Member (z. B. ein einzelner Random Forest über probly) wird mit klarer Fehlermeldung abgelehnt. |
+| `torch_bridge` (`from_torch_dropout`, `from_torch_ensemble`) | In der CI (Job `torch`) geprüft, allerdings nur mit kleinen, untrainierten Netzen. |
+| `probly_bridge` (`from_probly`) | In der CI (Job `probly`) gegen probly `2729f4f` geprüft: Member-Vorhersagen, volle Koalition und Entropie-Zerlegung stimmen mit `probly.quantification.quantify` überein. Nur Klassifikation; ein Modell ohne Member (z. B. ein einzelner Random Forest über probly) wird mit klarer Fehlermeldung abgelehnt. |
 
 Alle Unsicherheitsmaße sind eigene Implementierungen, die die probly-Zerlegungen nachbilden (`SecondOrderEntropyDecomposition`, `SecondOrderVarianceDecomposition`, `CredalSetEntropyDecomposition`). Die Entropie-Zerlegung ist gegen probly getestet, Varianz und Credal noch nicht. Conformal und OOD nutzen eigenen Code (probly hat `probly.conformal_scores`; `probly.evaluation.ood` liefert nur Auswertungsmaße, keinen Score pro Punkt).
 

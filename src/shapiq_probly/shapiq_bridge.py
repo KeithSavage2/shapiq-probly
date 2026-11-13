@@ -1,6 +1,6 @@
 """Bridge to shapiq (optional dependency, ``pip install shapiq-probly[shapiq]``).
 
-Checked in the CI job ``dev,shapiq`` against shapiq 1.8.0:
+Checked in the CI job ``shapiq`` against shapiq 1.8.0:
 ``tests/test_shapiq_bridge.py`` compares with ``shapiq.ExactComputer`` and is
 skipped when shapiq is missing. Approximators and shapiq plots are not covered yet.
 """
