@@ -1,4 +1,4 @@
-"""Single entry point: explain a prediction and its uncertainty."""
+"""Entry points: explain a prediction and its uncertainty, or any scalar game."""
 
 from __future__ import annotations
 
@@ -7,31 +7,54 @@ from typing import Any
 
 import numpy as np
 
+from .conformal import ConformalSetSizeGame
 from .exact import all_coalitions, compute_index, permutation_shapley
-from .explanation import Attribution, UncertaintyExplanation
-from .games import GAMES, UncertaintyGame
+from .explanation import Attribution, ScalarExplanation, UncertaintyExplanation
+from .games import GAMES, ScalarGame, UncertaintyGame
 from .imputation import Sampler
-from .measures import NOTIONS, Decomposition
+from .measures import NOTIONS, Decomposition, Measure
+from .ood import OODGame, Score
+
+
+def _feature_names(feature_names: list[str] | None, d: int) -> list[str]:
+    names = list(feature_names) if feature_names is not None else [f"x{i}" for i in range(d)]
+    if len(names) != d:
+        msg = f"Got {len(names)} feature names for {d} features."
+        raise ValueError(msg)
+    return names
+
+
+def _ends(d: int) -> np.ndarray:
+    return np.array([np.zeros(d, dtype=bool), np.ones(d, dtype=bool)])
+
+
+def _warn_approximation(d: int, max_exact: int, budget: int, n_samples: int) -> None:
+    warnings.warn(
+        f"{d} features > max_exact_features={max_exact}: approximating Shapley values with about {budget} "
+        f"coalition evaluations ({budget * n_samples} imputed rows). Interactions are not computed.",
+        stacklevel=3,
+    )
 
 
 class UncertaintyExplainer:
     """Explains predictions and their total, aleatoric and epistemic uncertainty.
 
-    Up to ``max_exact_features`` features all ``2^n`` coalitions are evaluated
-    once and every index is exact. Beyond that, Shapley values are approximated
-    by permutation sampling (interactions for many features: see
-    ``shapiq_probly.shapiq_bridge``).
+    Works for classification (entropy or credal decomposition) and regression
+    (variance decomposition). Up to ``max_exact_features`` features all ``2^n``
+    coalitions are evaluated once and every index is exact. Beyond that, Shapley
+    values are approximated by permutation sampling (interactions for many
+    features: see ``shapiq_probly.shapiq_bridge``).
 
     Args:
-        model: Member predictor ``X -> (M, n, C)``, sklearn ensemble or list of
-            classifiers.
+        model: Member predictor, sklearn ensemble or list of models.
         background: Background data for imputation, shape ``(n, d)``.
         index: ``"k-SII"`` (default), ``"SV"``, ``"SII"`` or ``"Moebius"``.
         max_order: Largest interaction size.
         imputer: ``"marginal"``, ``"gaussian"``, ``"knn"`` or a ``Sampler``.
         aggregation: ``"member_mean"`` (A), ``"pointwise"`` (B) or ``"pooled"`` (C).
         mode: ``"uncertainty"`` or ``"information_gain"``.
-        measure: Uncertainty decomposition, ``"entropy"`` or a callable.
+        measure: ``"auto"``, ``"entropy"``, ``"credal"``, ``"variance"``, a
+            ``Measure`` or a classification callable.
         n_samples: Imputations per coalition.
         feature_names: Optional feature names.
         budget: Coalition evaluations for the approximation (default ``200 * d``).
@@ -49,7 +72,7 @@ class UncertaintyExplainer:
         imputer: str | Sampler = "marginal",
         aggregation: str = "member_mean",
         mode: str = "uncertainty",
-        measure: str | Decomposition = "entropy",
+        measure: str | Measure | Decomposition = "auto",
         n_samples: int = 100,
         feature_names: list[str] | None = None,
         budget: int | None = None,
@@ -65,11 +88,7 @@ class UncertaintyExplainer:
         self.mode = mode
         self.measure = measure
         self.n_samples = n_samples
-        d = self.background.shape[1]
-        self.feature_names = list(feature_names) if feature_names is not None else [f"x{i}" for i in range(d)]
-        if len(self.feature_names) != d:
-            msg = f"Got {len(self.feature_names)} feature names for {d} features."
-            raise ValueError(msg)
+        self.feature_names = _feature_names(feature_names, self.background.shape[1])
         self.budget = budget
         self.max_exact_features = max_exact_features
         self.random_state = random_state
@@ -108,30 +127,27 @@ class UncertaintyExplainer:
                 )
         else:
             budget = self.budget or 200 * d
-            warnings.warn(
-                f"{d} features > max_exact_features={self.max_exact_features}: approximating Shapley values "
-                f"with about {budget} coalition evaluations ({budget * game.sampler.n_samples} model rows per "
-                "member). Interactions are not computed.",
-                stacklevel=2,
-            )
+            _warn_approximation(d, self.max_exact_features, budget, game.sampler.n_samples)
 
             def joint(coalitions: np.ndarray) -> np.ndarray:
                 ev = game.evaluate(coalitions)
                 return np.column_stack([ev[name] for name in GAMES])
 
             phi = permutation_shapley(joint, d, budget, self.random_state)
-            ends = joint(np.array([np.zeros(d, dtype=bool), np.ones(d, dtype=bool)]))
+            ends = joint(_ends(d))
             for j, name in enumerate(GAMES):
                 shapley[name] = phi[:, j]
                 values = {(i,): float(phi[i, j]) for i in range(d)}
                 attributions[name] = Attribution(name, "SV", 1, values, float(ends[0, j]), float(ends[1, j]), True)
 
-        ends_raw = game._raw(np.array([np.zeros(d, dtype=bool), np.ones(d, dtype=bool)]))
+        ends_raw = game._raw(_ends(d))
         return UncertaintyExplanation(
             x=game.x,
             feature_names=self.feature_names,
             predicted_proba=game.predicted_proba,
             predicted_class=game.predicted_class,
+            task=game.task,
+            prediction_value=game.prediction_value,
             uncertainty={n: float(ends_raw[1, j]) for j, n in enumerate(NOTIONS)},
             uncertainty_empty={n: float(ends_raw[0, j]) for j, n in enumerate(NOTIONS)},
             attributions=attributions,
@@ -143,9 +159,8 @@ class UncertaintyExplainer:
                 "imputer": self.imputer if isinstance(self.imputer, str) else type(self.imputer).__name__,
                 "aggregation": self.aggregation,
                 "mode": self.mode,
-                "measure": self.measure
-                if isinstance(self.measure, str)
-                else getattr(self.measure, "__name__", "custom"),
+                "measure": game.measure.name,
+                "unit": game.measure.unit,
                 "n_samples": game.sampler.n_samples,
                 "n_members": game.n_members,
                 "exact": exact,
@@ -153,7 +168,7 @@ class UncertaintyExplainer:
         )
 
     def explain_many(self, X: np.ndarray) -> list[UncertaintyExplanation]:
-        """Explain every row of ``X``."""
+        """Explain every row of ``X`` (input for the global plots)."""
         return [self.explain(x) for x in np.atleast_2d(X)]
 
 
@@ -167,3 +182,116 @@ def explain_uncertainty(model: Any, x: np.ndarray, background: np.ndarray, **kwa
         >>> print(expl.summary())  # doctest: +SKIP
     """
     return UncertaintyExplainer(model, background, **kwargs).explain(x)
+
+
+def explain_game(
+    game: ScalarGame,
+    *,
+    index: str = "k-SII",
+    max_order: int = 2,
+    feature_names: list[str] | None = None,
+    budget: int | None = None,
+    max_exact_features: int = 12,
+    random_state: int | None = 0,
+) -> ScalarExplanation:
+    """Explain a single-valued game (conformal set size, OOD score, custom).
+
+    Args:
+        game: The game to explain.
+        index: ``"k-SII"`` (default), ``"SV"``, ``"SII"`` or ``"Moebius"``.
+        max_order: Largest interaction size.
+        feature_names: Optional feature names.
+        budget: Coalition evaluations for the approximation (default ``200 * d``).
+        max_exact_features: Largest ``d`` for exact computation.
+        random_state: Seed of the approximation.
+    """
+    d = game.n_players
+    names = _feature_names(feature_names, d)
+    max_order = 1 if index == "SV" else min(max_order, d)
+    if d <= max_exact_features:
+        values = game.value_function(all_coalitions(d))
+        shapley = np.array(list(compute_index(values, "SV").values()))
+        attribution = Attribution(
+            game.name, index, max_order, compute_index(values, index, max_order), float(values[0]), float(values[-1])
+        )
+    else:
+        budget = budget or 200 * d
+        _warn_approximation(d, max_exact_features, budget, game.sampler.n_samples)
+        values = None
+        shapley = permutation_shapley(lambda c: game.value_function(c)[:, None], d, budget, random_state)[:, 0]
+        ends = game.value_function(_ends(d))
+        approx = {(i,): float(shapley[i]) for i in range(d)}
+        attribution = Attribution(game.name, "SV", 1, approx, float(ends[0]), float(ends[1]), True)
+    return ScalarExplanation(
+        name=game.name,
+        x=game.x,
+        feature_names=names,
+        value=attribution.full_value,
+        baseline=attribution.baseline_value,
+        attribution=attribution,
+        shapley=shapley,
+        game_values=values,
+        info=dict(game.info),
+    )
+
+
+def explain_set_size(
+    model: Any,
+    x: np.ndarray,
+    background: np.ndarray,
+    calibration: tuple[np.ndarray, np.ndarray],
+    *,
+    alpha: float = 0.1,
+    aggregation: str = "pointwise",
+    imputer: str | Sampler = "marginal",
+    n_samples: int = 100,
+    random_state: int | None = 0,
+    **kwargs: Any,
+) -> ScalarExplanation:
+    """Explain the size of the conformal prediction set at ``x`` (classification).
+
+    See :class:`~shapiq_probly.conformal.ConformalSetSizeGame` for the game
+    arguments; further keyword arguments go to :func:`explain_game`.
+    """
+    game = ConformalSetSizeGame(
+        model,
+        x,
+        background,
+        calibration,
+        alpha=alpha,
+        aggregation=aggregation,
+        imputer=imputer,
+        n_samples=n_samples,
+        random_state=random_state,
+    )
+    return explain_game(game, random_state=random_state, **kwargs)
+
+
+def explain_ood(
+    x: np.ndarray,
+    background: np.ndarray,
+    *,
+    score: str | Score = "knn",
+    reference: np.ndarray | None = None,
+    k: int = 10,
+    imputer: str | Sampler = "marginal",
+    n_samples: int = 100,
+    random_state: int | None = 0,
+    **kwargs: Any,
+) -> ScalarExplanation:
+    """Explain an out-of-distribution score of ``x``.
+
+    See :class:`~shapiq_probly.ood.OODGame` for the game arguments; further
+    keyword arguments go to :func:`explain_game`.
+    """
+    game = OODGame(
+        x,
+        background,
+        score=score,
+        reference=reference,
+        k=k,
+        imputer=imputer,
+        n_samples=n_samples,
+        random_state=random_state,
+    )
+    return explain_game(game, random_state=random_state, **kwargs)

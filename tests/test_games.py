@@ -3,6 +3,8 @@ import pytest
 
 from shapiq_probly import UncertaintyGame, all_coalitions, entropy_decomposition
 from shapiq_probly.games import AGGREGATIONS
+from shapiq_probly.imputation import MarginalSampler
+from shapiq_probly.measures import get_measure
 
 
 @pytest.fixture
@@ -84,3 +86,48 @@ def test_input_validation(toy_model, toy_background, x):
         UncertaintyGame(toy_model, x[:3], toy_background)
     with pytest.raises(ValueError, match=r"\(M, n, C\)"):
         UncertaintyGame(lambda X: np.ones((len(X), 2)), x, toy_background)
+
+
+@pytest.mark.parametrize("measure", ["entropy", "credal"])
+def test_each_aggregation_matches_its_definition(toy_model, toy_background, x, measure):
+    """D1 by hand for one coalition: (A) mix per member, (B) measure per point, (C) pool everything."""
+    decompose = get_measure(measure).decompose
+    coalition = np.array([True, False, True, False])
+    games = {
+        a: UncertaintyGame(toy_model, x, toy_background, aggregation=a, measure=measure, n_samples=25)
+        for a in AGGREGATIONS
+    }
+    probs = toy_model(games["member_mean"].sampler.sample(x, coalition))  # (M, K, C)
+    expected = {
+        "member_mean": decompose(probs.mean(axis=1)),
+        "pointwise": [v.mean() for v in decompose(probs)],
+        "pooled": decompose(probs.reshape(-1, probs.shape[-1])),
+    }
+    for aggregation, game in games.items():
+        ev = game.evaluate(coalition[None, :])
+        for notion, value in zip(("total", "aleatoric", "epistemic"), expected[aggregation], strict=True):
+            assert ev[notion][0] == pytest.approx(float(value), abs=1e-9), (aggregation, notion)
+
+
+@pytest.mark.parametrize("measure", ["entropy", "credal"])
+@pytest.mark.parametrize("aggregation", AGGREGATIONS)
+def test_coalitions_evaluated_together_or_one_by_one_agree(toy_model, toy_background, x, measure, aggregation):
+    kwargs = {"measure": measure, "aggregation": aggregation, "n_samples": 20}
+    together = UncertaintyGame(toy_model, x, toy_background, **kwargs).evaluate(all_coalitions(4))
+    one_by_one = UncertaintyGame(toy_model, x, toy_background, batch_size=1, **kwargs).evaluate(all_coalitions(4))
+    for notion in together:
+        np.testing.assert_allclose(together[notion], one_by_one[notion], atol=1e-9)
+
+
+def test_samplers_with_varying_sample_counts_are_supported(toy_model, toy_background, x):
+    class Ragged(MarginalSampler):
+        def sample(self, x, coalition):
+            return super().sample(x, coalition)[: 5 + 3 * int(coalition.sum())]
+
+    game = UncertaintyGame(toy_model, x, toy_background, imputer=Ragged(toy_background, 40), aggregation="pointwise")
+    ev = game.evaluate(all_coalitions(4))
+    np.testing.assert_allclose(ev["total"], ev["aleatoric"] + ev["epistemic"], atol=1e-12)
+    coalition = np.array([True, True, False, False])
+    probs = toy_model(game.sampler.sample(x, coalition))
+    assert probs.shape[1] == 11
+    assert game.evaluate(coalition[None, :])["total"][0] == pytest.approx(entropy_decomposition(probs)[0].mean())

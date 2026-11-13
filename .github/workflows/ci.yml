@@ -8,13 +8,17 @@ jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        extras: ["dev", "dev,shapiq"]
+        extras: ["dev", "dev,shapiq", "dev,torch"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      # CPU-only wheel: much smaller than the default CUDA build.
+      - if: contains(matrix.extras, 'torch')
+        run: pip install torch --index-url https://download.pytorch.org/whl/cpu
       - run: pip install -e ".[${{ matrix.extras }}]"
       - run: ruff check .
       - run: pytest -q

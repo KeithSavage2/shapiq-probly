@@ -13,25 +13,27 @@ from typing import Any
 import numpy as np
 
 from .explanation import Attribution, UncertaintyExplanation
-from .games import UncertaintyGame
+from .games import ScalarGame, UncertaintyGame
 
 
 def as_shapiq_game(
-    game: UncertaintyGame,
+    game: UncertaintyGame | ScalarGame,
     notion: str = "epistemic",
     *,
     normalize: bool = False,
     player_names: list[str] | None = None,
 ) -> Any:
-    """Wrap one notion of an :class:`UncertaintyGame` as a ``shapiq.Game``.
+    """Wrap one notion of an :class:`UncertaintyGame` (or a scalar game) as a ``shapiq.Game``.
 
     The result can be passed to ``shapiq.ExactComputer``, any shapiq
     approximator or ``shapiq.AgnosticExplainer``. All notions wrapped from the
     same ``game`` share its coalition cache.
 
     Args:
-        game: The uncertainty game.
-        notion: ``"total"``, ``"aleatoric"``, ``"epistemic"`` or ``"prediction"``.
+        game: The uncertainty game, or a ``ScalarGame`` such as the conformal
+            set size or an OOD score.
+        notion: ``"total"``, ``"aleatoric"``, ``"epistemic"`` or ``"prediction"``
+            (ignored for scalar games).
         normalize: Whether shapiq should subtract ``v(empty)``.
         player_names: Optional feature names.
     """
