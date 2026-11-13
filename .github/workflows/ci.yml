@@ -6,20 +6,23 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        extras: ["dev", "dev,shapiq", "dev,torch"]
-        probly: [false]
         include:
-          - extras: "dev"
-            probly: true
+          - {label: "core", os: ubuntu-latest, python: "3.12", extras: "dev"}
+          - {label: "shapiq", os: ubuntu-latest, python: "3.12", extras: "dev,shapiq"}
+          - {label: "torch", os: ubuntu-latest, python: "3.12", extras: "dev,torch"}
+          - {label: "probly", os: ubuntu-latest, python: "3.12", extras: "dev", probly: true}
+          - {label: "core on Windows", os: windows-latest, python: "3.12", extras: "dev"}
+          - {label: "core on Python 3.13", os: ubuntu-latest, python: "3.13", extras: "dev"}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python }}
       # CPU-only wheel: much smaller than the default CUDA build.
       - if: contains(matrix.extras, 'torch')
         run: pip install torch --index-url https://download.pytorch.org/whl/cpu
@@ -28,4 +31,19 @@ jobs:
       - if: matrix.probly
         run: pip install "probly @ git+https://github.com/pwhofman/probly@2729f4f"
       - run: ruff check .
-      - run: pytest -q
+      - run: ruff format --check .
+      # The coverage table lists every line no test reached. Each job misses the
+      # bridges whose library it does not install, hence the modest threshold.
+      - run: pytest -q --cov --cov-fail-under=85
+
+  examples:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - run: python examples/quickstart.py
+      - run: python examples/extensions.py
+      - run: python examples/regression_diabetes.py

@@ -1,6 +1,6 @@
 """Member predictors for torch models (optional dependency).
 
-Checked in the CI job ``dev,torch`` by ``tests/test_torch_bridge.py``, so far only
+Checked in the CI job ``torch`` by ``tests/test_torch_bridge.py``, so far only
 with small untrained networks. The tests are skipped when torch is missing.
 """
 
