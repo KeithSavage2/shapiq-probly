@@ -32,12 +32,12 @@ Python ≥ 3.12. Der Kern braucht nur numpy, scipy und scikit-learn. Die Beispie
 
 | Teil | Status |
 |---|---|
-| Kern, Regression, MC Dropout auf sklearn-MLPs, Credal, Conformal, OOD, globale Plots | 149 Tests grün (numpy/sklearn) |
-| `shapiq_bridge` | Auf GitHub-CI gegen shapiq 1.8.0 geprüft: Vergleich mit `shapiq.ExactComputer` und Additivität mit shapiq-Arithmetik bestehen (Stand v0.1). Der neue Test für skalare Spiele ist dort noch nicht gelaufen. |
-| `torch_bridge` (`from_torch_dropout`, `from_torch_ensemble`) | **nie ausgeführt**, torch war in der Entwicklungsumgebung nicht installierbar. `tests/test_torch_bridge.py` läuft im CI-Job `dev,torch`; erst wenn der grün ist, gilt das Modul als geprüft. |
-| `probly_bridge` (`from_probly`) | **Skizze**. Form und Typ von `representer.represent(x)` sind nicht verifiziert; die Schritte zum Fertigstellen stehen im Modul-Docstring. |
+| Kern, Regression, MC Dropout auf sklearn-MLPs, Credal, Conformal, OOD, globale Plots | 153 Tests grün (numpy/sklearn) |
+| `shapiq_bridge` | In der CI gegen shapiq 1.8.0 geprüft: Vergleich mit `shapiq.ExactComputer` (4 Merkmale), Additivität mit shapiq-Arithmetik, skalare Spiele. Nicht geprüft: Approximatoren, mehr als 12 Merkmale, shapiq-Plots. |
+| `torch_bridge` (`from_torch_dropout`, `from_torch_ensemble`) | In der CI (Job `dev,torch`) geprüft, allerdings nur mit kleinen, untrainierten Netzen. |
+| `probly_bridge` (`from_probly`) | In der CI (eigener Job mit probly) gegen probly `2729f4f` geprüft: Member-Vorhersagen, volle Koalition und Entropie-Zerlegung stimmen mit `probly.quantification.quantify` überein. Nur Klassifikation; ein Modell ohne Member (z. B. ein einzelner Random Forest über probly) wird mit klarer Fehlermeldung abgelehnt. |
 
-Alle Unsicherheitsmaße sind eigene Implementierungen, die die probly-Zerlegungen nachbilden (`SecondOrderEntropyDecomposition`, `SecondOrderVarianceDecomposition`, `CredalSetEntropyDecomposition`). Conformal und OOD nutzen ebenfalls eigenen Code, nicht `probly.conformal` oder `probly.evaluation.ood`.
+Alle Unsicherheitsmaße sind eigene Implementierungen, die die probly-Zerlegungen nachbilden (`SecondOrderEntropyDecomposition`, `SecondOrderVarianceDecomposition`, `CredalSetEntropyDecomposition`). Die Entropie-Zerlegung ist gegen probly getestet, Varianz und Credal noch nicht. Conformal und OOD nutzen eigenen Code (probly hat `probly.conformal_scores`; `probly.evaluation.ood` liefert nur Auswertungsmaße, keinen Score pro Punkt).
 
 ## Was die Library kann
 
@@ -60,7 +60,7 @@ Ein Modell ist alles, was sich in eine Funktion `X -> (M, n, C)` (Klassenwahrsch
 |---|---|
 | `adapters` | Modell → Member-Vorhersagen. sklearn-Ensembles für Klassifikation und Regression. Regressionsbäume liefern Blattmittel und Blattvarianz. |
 | `dropout` | MC Dropout auf fertig trainierten sklearn-MLPs mit festen Masken pro Member. |
-| `torch_bridge` | Deep Ensembles und MC Dropout für torch (ungeprüft, siehe oben). |
+| `torch_bridge` | Deep Ensembles und MC Dropout für torch. |
 | `imputation` | `"marginal"`, `"gaussian"`, `"knn"` (empirisch bedingt). Gemeinsame Zufallszahlen für alle Koalitionen. |
 | `measures` | Zerlegungen `"entropy"`, `"variance"`, `"credal"`; erweiterbar über `Measure`. |
 | `games` | `UncertaintyGame` (ein Imputationsdurchlauf, vier Spiele, Cache) und `ScalarGame` für einwertige Größen. |

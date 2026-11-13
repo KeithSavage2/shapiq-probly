@@ -1,19 +1,18 @@
 """Bridge to probly (optional dependency).
 
-NOTE: this is a deliberately thin sketch. probly could not be installed in the
-environment this package was developed in, so the exact shape and type of what
-``representer(model).represent(x)`` returns is NOT verified here. Everything
-else in the package only needs a function ``X -> (M, n, C)``; this module is
-the single place that has to know probly.
+Turns a probly representer into the function ``X -> (M, n, C)`` that the rest
+of the package works with. Verified against probly commit ``2729f4f``
+(12.11.2026) in ``tests/test_probly_bridge.py``:
 
-To finish it in the fork:
+* ``representer(ensemble).represent(X)`` returns a sample whose shape is
+  ``(n, M)``: batch first, members on ``sample_axis == 1``. Its
+  ``.array.probabilities`` has shape ``(n, M, C)``.
+* The model must have members. ``representer(RandomForestClassifier)`` gives a
+  single distribution per point; use ``probly.method.ensemble.ensemble`` or
+  pass the forest directly to this package (see ``adapters.py``).
 
-1. Call ``rep = representer(method(model)); out = rep.represent(X)`` once and
-   inspect ``out`` (type, shape, axis order).
-2. Write the conversion to a numpy array of shape ``(M, n, C)`` and pass it as
-   ``to_probs``, or adjust ``_default_to_probs``.
-3. Add a test that compares ``UncertaintyGame`` at the full coalition with
-   ``quantify(rep.represent(x))`` (``.total``, ``.aleatoric``, ``.epistemic``).
+Only classification is covered. For regression, probly currently returns no
+variance decomposition for sklearn models, so use the built-in adapters.
 """
 
 from __future__ import annotations
@@ -27,22 +26,33 @@ from .adapters import MemberPredictor
 
 
 def _default_to_probs(representation: Any) -> np.ndarray:
-    """Best-effort conversion of a probly sample representation to ``(M, n, C)``.
+    """Convert a probly sample representation to probabilities ``(M, n, C)``.
 
-    Assumes an array-like (or an object with ``.samples`` / ``.tensor``) laid
-    out as ``(n, M, C)``, i.e. batch first, members second. Verify this!
+    Handles probly samples (anything with ``sample_axis`` and
+    ``array.probabilities``) and, as a fallback, plain arrays or tensors laid
+    out as ``(n, M, C)``.
     """
-    for attr in ("samples", "tensor", "array"):
-        if hasattr(representation, attr):
-            representation = getattr(representation, attr)
-            break
-    if hasattr(representation, "detach"):
-        representation = representation.detach().cpu().numpy()
-    probs = np.asarray(representation, dtype=float)
+    sample_axis = getattr(representation, "sample_axis", None)
+    inner = getattr(representation, "array", None)
+    if sample_axis is not None and hasattr(inner, "probabilities"):
+        values, member_axis = inner.probabilities, int(sample_axis)
+    else:
+        values, member_axis = representation, 1
+    if hasattr(values, "detach"):
+        values = values.detach().cpu().numpy()
+    try:
+        probs = np.asarray(values, dtype=float)
+    except (TypeError, ValueError) as err:
+        msg = f"Cannot convert a {type(representation).__name__} to member probabilities. Pass a custom 'to_probs'."
+        raise TypeError(msg) from err
     if probs.ndim != 3:
-        msg = f"Expected a 3D sample representation, got shape {probs.shape}. Pass a custom 'to_probs'."
+        msg = (
+            f"Expected member probabilities with 3 axes, got shape {probs.shape}. "
+            "The model probably has no members (e.g. a plain random forest); wrap it with "
+            "probly's 'ensemble' or pass a custom 'to_probs'."
+        )
         raise ValueError(msg)
-    return np.moveaxis(probs, 1, 0)
+    return np.moveaxis(probs, member_axis, 0)
 
 
 def from_probly(
