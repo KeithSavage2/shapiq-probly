@@ -1,9 +1,8 @@
 """Bridge to shapiq (optional dependency, ``pip install shapiq-probly[shapiq]``).
 
-NOTE: this module was written against the documented shapiq 1.8 API but could
-not be executed in the environment it was developed in. ``tests/test_shapiq_bridge.py``
-checks it against ``shapiq.ExactComputer`` and is skipped when shapiq is missing.
-Run it once in your own environment before relying on this module.
+Checked in the CI job ``dev,shapiq`` against shapiq 1.8.0:
+``tests/test_shapiq_bridge.py`` compares with ``shapiq.ExactComputer`` and is
+skipped when shapiq is missing. Approximators and shapiq plots are not covered yet.
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""Integration with torch. Skipped unless torch is installed (never run in development)."""
+"""Integration with torch. Skipped unless torch is installed (runs in the CI job 'dev,torch')."""
 
 import numpy as np
 import pytest

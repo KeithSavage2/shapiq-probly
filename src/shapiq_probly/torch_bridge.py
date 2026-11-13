@@ -1,10 +1,7 @@
 """Member predictors for torch models (optional dependency).
 
-NOTE: torch could not be installed in the environment this package was
-developed in, so nothing in this module has been executed. It is written
-against the documented torch API (``nn.Module.register_forward_hook``,
-``nn.Dropout``). ``tests/test_torch_bridge.py`` is skipped without torch; run
-it once in your own environment before relying on this module.
+Checked in the CI job ``dev,torch`` by ``tests/test_torch_bridge.py``, so far only
+with small untrained networks. The tests are skipped when torch is missing.
 """
 
 from __future__ import annotations
